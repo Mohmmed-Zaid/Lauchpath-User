@@ -1,14 +1,13 @@
-// ============================================================
-// SubscriptionController.java
-// ============================================================
 package launchpath.userservice.co.controller;
 
+import launchpath.userservice.co.dto.request.RedeemCouponRequest;
 import launchpath.userservice.co.dto.response.ApiResponseDTO;
 import launchpath.userservice.co.dto.response.PlanResponseDTO;
 import launchpath.userservice.co.dto.response.SubscriptionResponseDTO;
 import launchpath.userservice.co.entities.Subscription;
 import launchpath.userservice.co.mapper.UserMapper;
-import launchpath.userservice.co.service.SubscriptionService;
+import launchpath.userservice.co.services.SubscriptionService;
+import launchpath.userservice.co.services.CouponService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +22,7 @@ import java.util.List;
 public class SubscriptionController {
 
     private final SubscriptionService subscriptionService;
+    private final CouponService couponService;
     private final UserMapper userMapper;
 
     // ══════════════════════════════════════════════════════════
@@ -49,7 +49,6 @@ public class SubscriptionController {
     // ══════════════════════════════════════════════════════════
     // GET REMAINING ATS CREDITS
     // GET /api/v1/subscriptions/my/ats-credits
-    // Called by resume-service via Feign before ATS analysis
     // ══════════════════════════════════════════════════════════
 
     @GetMapping("/my/ats-credits")
@@ -59,10 +58,7 @@ public class SubscriptionController {
         int remaining = subscriptionService.getRemainingAtsCredits(userId);
 
         return ResponseEntity.ok(
-                ApiResponseDTO.success(
-                        "ATS credits fetched",
-                        remaining
-                )
+                ApiResponseDTO.success("ATS credits fetched", remaining)
         );
     }
 
@@ -78,17 +74,13 @@ public class SubscriptionController {
         int remaining = subscriptionService.getRemainingDownloads(userId);
 
         return ResponseEntity.ok(
-                ApiResponseDTO.success(
-                        "Downloads remaining fetched",
-                        remaining
-                )
+                ApiResponseDTO.success("Downloads remaining fetched", remaining)
         );
     }
 
     // ══════════════════════════════════════════════════════════
     // CHECK SUBSCRIPTION ACTIVE
     // GET /api/v1/subscriptions/my/active
-    // Used by resume-service via Feign
     // ══════════════════════════════════════════════════════════
 
     @GetMapping("/my/active")
@@ -98,10 +90,7 @@ public class SubscriptionController {
         boolean active = subscriptionService.isSubscriptionActive(userId);
 
         return ResponseEntity.ok(
-                ApiResponseDTO.success(
-                        "Subscription status checked",
-                        active
-                )
+                ApiResponseDTO.success("Subscription status checked", active)
         );
     }
 
@@ -115,21 +104,16 @@ public class SubscriptionController {
             @RequestHeader("X-User-Id") Long userId,
             @RequestParam long currentCount) {
 
-        boolean canCreate = subscriptionService
-                .canCreateMoreResumes(userId, currentCount);
+        boolean canCreate = subscriptionService.canCreateMoreResumes(userId, currentCount);
 
         return ResponseEntity.ok(
-                ApiResponseDTO.success(
-                        "Resume limit checked",
-                        canCreate
-                )
+                ApiResponseDTO.success("Resume limit checked", canCreate)
         );
     }
 
     // ══════════════════════════════════════════════════════════
     // CONSUME ATS CREDIT
     // POST /api/v1/subscriptions/my/consume-ats
-    // Called by resume-service via Feign before every AI call
     // ══════════════════════════════════════════════════════════
 
     @PostMapping("/my/consume-ats")
@@ -164,7 +148,6 @@ public class SubscriptionController {
     // ══════════════════════════════════════════════════════════
     // REFUND ATS CREDIT
     // POST /api/v1/subscriptions/my/refund-ats
-    // Called when AI analysis fails — user not penalized
     // ══════════════════════════════════════════════════════════
 
     @PostMapping("/my/refund-ats")
@@ -218,9 +201,33 @@ public class SubscriptionController {
     }
 
     // ══════════════════════════════════════════════════════════
+    // REDEEM COUPON
+    // POST /api/v1/subscriptions/redeem-coupon
+    // No payment gateway — coupon activates plan directly
+    // X-User-Id injected by gateway (same as all other endpoints)
+    // ══════════════════════════════════════════════════════════
+
+    @PostMapping("/redeem-coupon")
+    public ResponseEntity<ApiResponseDTO<SubscriptionResponseDTO>> redeemCoupon(
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestBody RedeemCouponRequest request) {
+
+        log.info("Redeem coupon for userId: {}, code: {}", userId, request.getCouponCode());
+
+        Subscription upgraded = couponService.redeemCoupon(userId, request.getCouponCode());
+
+        return ResponseEntity.ok(
+                ApiResponseDTO.success(
+                        "Coupon applied successfully",
+                        userMapper.toSubscriptionResponseDTO(upgraded)
+                )
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════
     // GET ALL PLANS
     // GET /api/v1/subscriptions/plans
-    // Public — no auth needed, shown on pricing page
+    // Public — no auth needed
     // ══════════════════════════════════════════════════════════
 
     @GetMapping("/plans")
@@ -232,10 +239,7 @@ public class SubscriptionController {
                 .toList();
 
         return ResponseEntity.ok(
-                ApiResponseDTO.success(
-                        "Plans fetched successfully",
-                        plans
-                )
+                ApiResponseDTO.success("Plans fetched successfully", plans)
         );
     }
 }

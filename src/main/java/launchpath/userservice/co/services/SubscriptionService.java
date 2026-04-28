@@ -1,4 +1,4 @@
-package launchpath.userservice.co.service;
+package launchpath.userservice.co.services;
 
 import launchpath.userservice.co.entities.Plan;
 import launchpath.userservice.co.entities.Subscription;

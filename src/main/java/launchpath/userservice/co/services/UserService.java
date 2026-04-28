@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,11 +32,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final PlanRepository planRepository;
     private final SubscriptionRepository subscriptionRepository;
-
-    // ══════════════════════════════════════════════════════════
-    // REGISTRATION — no BCrypt yet, plain password for now
-    // We add password encoding when we wire security later
-    // ══════════════════════════════════════════════════════════
+    private final PasswordEncoder passwordEncoder;
 
     @Transactional
     public User registerUser(String email, String password, String fullName) {
@@ -54,8 +51,9 @@ public class UserService {
         // BCrypt encoding added when we implement security layer
         User user = User.builder()
                 .email(email.toLowerCase().trim())
-                .password(password)
-                .fullName(fullName.trim())
+                .password(passwordEncoder.encode(password))
+                .fullName(fullName.trim()
+                        .replaceAll("[<>\"'%;()&+]", ""))
                 .provider(AuthProvider.LOCAL)
                 .role(UserRole.USER)
                 .isVerified(false)
@@ -163,7 +161,7 @@ public class UserService {
         User user = getUserById(userId);
 
         if (fullName != null && !fullName.isBlank()) {
-            user.setFullName(fullName.trim());
+            user.setFullName(fullName.trim().replaceAll("[<>\"'%;()&+]", ""));
         }
         if (avatarUrl != null && !avatarUrl.isBlank()) {
             user.setAvatarUrl(avatarUrl);
@@ -303,5 +301,51 @@ public class UserService {
                     "Password must contain at least one special character"
             );
         }
+    }
+
+    public User saveUser(User user) {
+        return userRepository.save(user);
+    }
+    
+
+    @Transactional
+    public User registerOrLoginOAuthUser(String email,
+                                         String fullName,
+                                         String avatarUrl,
+                                         AuthProvider provider,
+                                         String providerId) {
+        log.info("OAuth login - provider: {}, email: {}", provider, email);
+
+        // Check if OAuth user already exists
+        return userRepository.findByProviderAndProviderId(provider, providerId)
+                .map(existingUser -> {
+                    // Update profile info in case it changed on Google side
+                    existingUser.setFullName(fullName);
+                    existingUser.setAvatarUrl(avatarUrl);
+                    return userRepository.save(existingUser);
+                })
+                .orElseGet(() -> {
+                    if (userRepository.existsByEmail(email)) {
+                        throw new ResourceAlreadyExistsException(
+                                "An account with this email already exists. " +
+                                        "Please login with email and password."
+                        );
+                    }
+
+                    User newUser = User.builder()
+                            .email(email.toLowerCase().trim())
+                            .fullName(fullName)
+                            .avatarUrl(avatarUrl)
+                            .provider(provider)
+                            .providerId(providerId)
+                            .role(UserRole.USER)
+                            .isVerified(true) // Google pre-verifies emails
+                            .build();
+
+                    User saved = userRepository.save(newUser);
+                    assignFreePlan(saved);
+                    log.info("New OAuth user created: {}", saved.getId());
+                    return saved;
+                });
     }
 }
