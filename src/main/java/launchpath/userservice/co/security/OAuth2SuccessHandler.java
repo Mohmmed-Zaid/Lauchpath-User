@@ -7,11 +7,13 @@ import launchpath.userservice.co.enums.AuthProvider;
 import launchpath.userservice.co.services.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -23,6 +25,9 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
     private UserService userService;
     private final JwtUtil jwtUtil;
+
+    @Value("${app.oauth2.redirect-url:http://localhost:8080/auth/callback}")
+    private String frontendCallbackUrl;
 
     @Autowired
     public OAuth2SuccessHandler(JwtUtil jwtUtil) {
@@ -41,40 +46,54 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             HttpServletResponse response,
             Authentication authentication) throws IOException {
 
-        OAuth2User oAuth2User = (OAuth2User) authentication.getPrincipal();
+        try {
+            OAuth2User oAuth2User = (OAuth2User) authentication.getPrincipal();
 
-        String email    = oAuth2User.getAttribute("email");
-        String name     = oAuth2User.getAttribute("name");
-        String picture  = oAuth2User.getAttribute("picture");
-        String googleId = oAuth2User.getAttribute("sub");
+            String email = oAuth2User.getAttribute("email");
+            String name = oAuth2User.getAttribute("name");
+            String picture = oAuth2User.getAttribute("picture");
+            String googleId = oAuth2User.getAttribute("sub");
 
-        log.info("OAuth2 success - email: {}", email);
+            if (email == null || email.isEmpty()) {
+                handleFailure(response, "Email not provided by Google");
+                return;
+            }
 
-        // Create or fetch user
-        User user = userService.registerOrLoginOAuthUser(
-                email,
-                name,
-                picture,
-                AuthProvider.GOOGLE,
-                googleId
-        );
+            User user = userService.registerOrLoginOAuthUser(
+                    email, name, picture, AuthProvider.GOOGLE, googleId
+            );
 
-        // Generate tokens
-        String accessToken = jwtUtil.generateAccessToken(
-                user.getId(),
-                user.getEmail(),
-                user.getRole().name()
-        );
+            String accessToken = jwtUtil.generateAccessToken(
+                    user.getId(), user.getEmail(), user.getRole().name()
+            );
+            String refreshToken = jwtUtil.generateRefreshToken(user.getId());
 
-        String refreshToken = jwtUtil.generateRefreshToken(user.getId());
+            // Build redirect URL — do NOT double-encode
+            String redirectUrl = UriComponentsBuilder
+                    .fromUriString(frontendCallbackUrl)
+                    .queryParam("accessToken", accessToken)
+                    .queryParam("refreshToken", refreshToken)
+                    .build()
+                    .toUriString();
 
-        String encodedAccessToken = URLEncoder.encode(accessToken, StandardCharsets.UTF_8);
-        String encodedRefreshToken = URLEncoder.encode(refreshToken, StandardCharsets.UTF_8);
+            log.info("Redirecting OAuth2 success to frontend");
 
-        String redirectUrl = "http://localhost:5173/auth/callback" +
-                "?accessToken=" + encodedAccessToken +
-                "&refreshToken=" + encodedRefreshToken;
+            // Clear authentication attributes to avoid session issues
+            super.clearAuthenticationAttributes(request);
 
-        response.sendRedirect(redirectUrl);
+            response.sendRedirect(redirectUrl);
+
+        } catch (Exception e) {
+            log.error("OAuth2 authentication failed: {}", e.getMessage());
+            handleFailure(response, e.getMessage());
+        }
     }
-}
+
+    private void handleFailure(HttpServletResponse response, String message) throws IOException {
+        String errorUrl = UriComponentsBuilder
+                .fromUriString(frontendCallbackUrl.replace("/auth/callback", "/login"))
+                .queryParam("error", message)
+                .build()
+                .toUriString();
+        response.sendRedirect(errorUrl);
+    }}

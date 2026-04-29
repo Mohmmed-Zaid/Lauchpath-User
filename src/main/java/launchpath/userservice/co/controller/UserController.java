@@ -27,6 +27,22 @@ public class UserController {
     private final UserService userService;
     private final UserMapper userMapper;
 
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponseDTO<UserResponseDTO>> getMe(
+            @RequestHeader("X-User-Id") Long userId) {
+
+        log.info("Get current user: {}", userId);
+        User user = userService.getUserById(userId);
+
+        return ResponseEntity.ok(
+                ApiResponseDTO.success(
+                        "User fetched successfully",
+                        userMapper.toUserResponseDTO(user)
+                )
+        );
+    }
+
+
     // ══════════════════════════════════════════════════════════
     // REGISTER
     // POST /api/v1/users/register

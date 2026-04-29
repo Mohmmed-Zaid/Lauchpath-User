@@ -30,7 +30,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                .cors(cors -> cors.configurationSource(corsConfigurationSource())) // ← ADD THIS
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
@@ -40,8 +40,6 @@ public class SecurityConfig {
                                 "/api/v1/auth/**",
                                 "/api/v1/users/exists",
                                 "/api/v1/subscriptions/plans",
-                                "/login/oauth2/**",
-                                "/oauth2/**",
                                 "/actuator/health",
                                 "/api/v1/subscriptions/my/consume-ats",
                                 "/api/v1/subscriptions/my/refund-ats",
@@ -49,13 +47,23 @@ public class SecurityConfig {
                                 "/api/v1/subscriptions/my/refund-download",
                                 "/api/v1/subscriptions/my/active",
                                 "/api/v1/subscriptions/my/ats-credits",
-                                "/api/v1/subscriptions/my/can-create"
+                                "/api/v1/subscriptions/my/can-create",
+                                "/login/oauth2/**",
+                                "/oauth2/**",
+                                "/swagger-ui/**",
+                                "/v3/api-docs/**"
                         ).permitAll()
                         .requestMatchers("/api/v1/users/stats/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .oauth2Login(oauth2 -> oauth2
                         .successHandler(oAuth2SuccessHandler)
+                        .authorizationEndpoint(auth -> auth
+                                .baseUri("/oauth2/authorization")
+                        )
+                        .redirectionEndpoint(redirection -> redirection
+                                .baseUri("/login/oauth2/code/*")
+                        )
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -67,7 +75,8 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(List.of(
                 "http://localhost:8080",
-                "http://localhost:5173"
+                "http://localhost:5173",
+                "http://localhost:8081"
         ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));

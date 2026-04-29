@@ -306,7 +306,7 @@ public class UserService {
     public User saveUser(User user) {
         return userRepository.save(user);
     }
-    
+
 
     @Transactional
     public User registerOrLoginOAuthUser(String email,
@@ -316,36 +316,44 @@ public class UserService {
                                          String providerId) {
         log.info("OAuth login - provider: {}, email: {}", provider, email);
 
-        // Check if OAuth user already exists
+        // 1. Try to find by provider + providerId first (returning OAuth user)
         return userRepository.findByProviderAndProviderId(provider, providerId)
                 .map(existingUser -> {
-                    // Update profile info in case it changed on Google side
                     existingUser.setFullName(fullName);
                     existingUser.setAvatarUrl(avatarUrl);
                     return userRepository.save(existingUser);
                 })
                 .orElseGet(() -> {
-                    if (userRepository.existsByEmail(email)) {
-                        throw new ResourceAlreadyExistsException(
-                                "An account with this email already exists. " +
-                                        "Please login with email and password."
-                        );
-                    }
+                    // 2. Check if an account with this email already exists (LOCAL signup)
+                    return userRepository.findByEmail(email.toLowerCase().trim())
+                            .map(existingUser -> {
+                                // Link the Google account to the existing LOCAL account
+                                existingUser.setProvider(provider);
+                                existingUser.setProviderId(providerId);
+                                if (avatarUrl != null && existingUser.getAvatarUrl() == null) {
+                                    existingUser.setAvatarUrl(avatarUrl);
+                                }
+                                existingUser.setIsVerified(true); // Google pre-verifies
+                                log.info("Linked Google account to existing user: {}", email);
+                                return userRepository.save(existingUser);
+                            })
+                            .orElseGet(() -> {
+                                // 3. Brand new user — create account
+                                User newUser = User.builder()
+                                        .email(email.toLowerCase().trim())
+                                        .fullName(fullName)
+                                        .avatarUrl(avatarUrl)
+                                        .provider(provider)
+                                        .providerId(providerId)
+                                        .role(UserRole.USER)
+                                        .isVerified(true)
+                                        .build();
 
-                    User newUser = User.builder()
-                            .email(email.toLowerCase().trim())
-                            .fullName(fullName)
-                            .avatarUrl(avatarUrl)
-                            .provider(provider)
-                            .providerId(providerId)
-                            .role(UserRole.USER)
-                            .isVerified(true) // Google pre-verifies emails
-                            .build();
-
-                    User saved = userRepository.save(newUser);
-                    assignFreePlan(saved);
-                    log.info("New OAuth user created: {}", saved.getId());
-                    return saved;
+                                User saved = userRepository.save(newUser);
+                                assignFreePlan(saved);
+                                log.info("New OAuth user created: {}", saved.getId());
+                                return saved;
+                            });
                 });
     }
 }
