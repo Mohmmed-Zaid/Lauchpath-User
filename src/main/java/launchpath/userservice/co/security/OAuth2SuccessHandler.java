@@ -26,7 +26,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     private UserService userService;
     private final JwtUtil jwtUtil;
 
-    @Value("${app.oauth2.redirect-url:http://localhost:8080/auth/callback}")
+    @Value("${app.oauth2.redirect-url:https://launchpath-career-guardian.vercel.app/auth/callback}")
     private String frontendCallbackUrl;
 
     @Autowired
