@@ -26,11 +26,7 @@ public class JwtUtil {
 
     // ── Generate Access Token ─────────────────────────────
 
-    /**
-     * Access token — 15 minutes.
-     * Contains userId, email, role in claims.
-     * Used on every API request.
-     */
+
     public String generateAccessToken(Long userId,
                                       String email,
                                       String role) {
